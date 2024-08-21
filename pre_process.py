@@ -60,8 +60,11 @@ def preprocess_stages(stage_dir):
         if not os.path.exists(layer_0):
             layer_0 = stage_path / f"{stage}_stg_l0.arc"
             if not os.path.exists(layer_0):
-                print(f"Could not find archive: {layer_0}")
-                return
+                layer_0 = stage_path / "NX" / f"{stage}_stg_l0.arc.LZ"
+                if not os.path.exists(layer_0):
+                    layer_0 = stage_path / "NX" / f"{stage}_stg_l0.arc"
+                    if not os.path.exists(layer_0):
+                        return
         
         stages_l0.append(layer_0)
 
