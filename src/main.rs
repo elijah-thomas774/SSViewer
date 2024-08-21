@@ -109,7 +109,7 @@ impl MyApp {
             shader,
             nrm_shader,
             black_shader,
-            cam_speed: 1f32,
+            cam_speed: 30f32,
         }
     }
 }
@@ -118,13 +118,10 @@ impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui::SidePanel::new(Side::Left, Id::new("Control Panel")).show(ctx, |ui| {
             ui.add(egui::Checkbox::new(&mut self.wireframe, "Wireframe"));
-            ui.add(
-                egui::Slider::new(
-                    &mut self.cam_speed,
-                    RangeInclusive::<f32>::new(0.1f32, 5f32),
-                )
-                .step_by(0.01f64),
-            );
+            ui.add(egui::Slider::new(
+                &mut self.cam_speed,
+                RangeInclusive::new(0.0, 1000.0),
+            ));
             ui.add(egui::Separator::default());
 
             egui::ScrollArea::vertical()

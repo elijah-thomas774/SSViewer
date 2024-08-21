@@ -119,7 +119,7 @@ def preprocess_stages(stage_dir):
                         r_kcl.append((r_file_name, r_arc.get_file_data(r_path)))
                 
                 # split path again because file_name was overriden
-                room_id = int(l_file_name.removesuffix(".arc")[-2:])
+                room_id = int(l_file_name[-6:-4]) # r##
                 room_name = f"Room {room_id}"
                 rarc_dat.append((room_name, r_dat, r_kcl))
         

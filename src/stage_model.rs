@@ -296,7 +296,7 @@ impl Stage {
     ) {
         let _ = ui;
         ctx.input(|i| {
-            let step = (speed * i.time as f32) as f32;
+            let step = (speed * i.predicted_dt as f32 * 2.0f32) as f32;
             let mut update_model = false;
 
             if i.key_down(egui::Key::W) {
