@@ -10,3 +10,13 @@ This viewer required the Stage files to be preprocessed from the game.
     `python pre_process.py -i "<RANDO_DIR>\actual-extract\DATA\files\Stage"`
 
 Once Stages are preprocessed, just running `cargo run` will run the application :)
+
+# Controls
+
+- `WASD` to move around
+- `Shift` to descend
+- `Space` to ascend
+- `-` to shrink stage
+- `+` to expand stage
+- `Click and Drag` to pan camera
+- Slider is currently move speed
