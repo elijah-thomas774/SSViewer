@@ -5,7 +5,8 @@
 use eframe::{egui, egui_glow, glow};
 use egui::mutex::Mutex;
 use egui::panel::Side;
-use egui::{Id, Response};
+use egui::{Color32, Id, Response};
+use ss_plc::ENTRY_FILTER;
 use stage_model::Stage;
 
 use core::f32;
@@ -41,6 +42,7 @@ fn main() -> eframe::Result {
         Box::new(|cc| Ok(Box::new(MyApp::new(cc)))),
     )
 }
+
 struct MyApp {
     /// Behind an `Arc<Mutex<…>>` so we can pass it to [`egui::PaintCallback`] and paint later.
     model: Vec<Arc<Mutex<Stage>>>,
@@ -51,6 +53,9 @@ struct MyApp {
     nrm_shader: Shader,
     black_shader: Shader,
     cam_speed: f32,
+    property_filter: usize,
+    range_selection: u32,
+    bg_color: Color32,
 }
 
 impl MyApp {
@@ -110,6 +115,9 @@ impl MyApp {
             nrm_shader,
             black_shader,
             cam_speed: 30f32,
+            property_filter: 0,
+            range_selection: 0,
+            bg_color: Color32::from_rgb(10, 10, 10),
         }
     }
 }
@@ -122,6 +130,63 @@ impl eframe::App for MyApp {
                 &mut self.cam_speed,
                 RangeInclusive::new(0.0, 1000.0),
             ));
+            egui::ComboBox::from_label("Property Filter")
+                .selected_text(format!(
+                    "{}",
+                    match &ENTRY_FILTER[self.property_filter] {
+                        ss_plc::EntryType::Norm => format!("Normals"),
+                        ss_plc::EntryType::Range(val) | ss_plc::EntryType::Single(val) => {
+                            format!("Code {}: 0x{:08X}", val.code_idx, val.mask << val.shift)
+                        }
+                    }
+                ))
+                .show_ui(ui, |ui| {
+                    for i in 0..ENTRY_FILTER.len() {
+                        let text = match &ENTRY_FILTER[i] {
+                            ss_plc::EntryType::Norm => format!("Normals"),
+                            ss_plc::EntryType::Range(val) | ss_plc::EntryType::Single(val) => {
+                                format!("Code {}: 0x{:08X}", val.code_idx, val.mask << val.shift)
+                            }
+                        };
+                        if ui
+                            .selectable_value(&mut self.property_filter, i, text)
+                            .clicked()
+                        {
+                            self.model.iter().for_each(|stage| {
+                                let mut stage = stage.lock();
+                                if let Some(_) = self.selected_stage {
+                                    stage.update_tris(frame.gl().unwrap(), i, self.range_selection);
+                                }
+                            });
+                        }
+                    }
+                });
+            match &ENTRY_FILTER[self.property_filter] {
+                ss_plc::EntryType::Range(val) => {
+                    if ui
+                        .add(
+                            egui::Slider::new(&mut self.range_selection, 0..=val.mask)
+                                .clamp_to_range(true)
+                                .hexadecimal(2, false, true),
+                        )
+                        .changed()
+                    {
+                        self.model.iter().for_each(|stage| {
+                            let mut stage = stage.lock();
+                            if let Some(_) = self.selected_stage {
+                                stage.update_tris(
+                                    frame.gl().unwrap(),
+                                    self.property_filter,
+                                    self.range_selection,
+                                );
+                            }
+                        });
+                    }
+                }
+                _ => {}
+            };
+            // ui.color_edit_button_srgba(&mut self.bg_color);
+
             ui.add(egui::Separator::default());
 
             egui::ScrollArea::vertical()
@@ -139,9 +204,11 @@ impl eframe::App for MyApp {
                 });
         });
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::Frame::canvas(ui.style()).show(ui, |ui| {
-                self.custom_painting(ui, ctx);
-            });
+            egui::Frame::canvas(ui.style())
+                .fill(self.bg_color)
+                .show(ui, |ui| {
+                    self.custom_painting(ui, ctx);
+                });
         });
     }
 
@@ -187,6 +254,7 @@ impl MyApp {
         let black_shader = self.black_shader.clone();
         let wire_frame = self.wireframe;
         let show_normals = self.show_normals;
+        let bg_color = self.bg_color;
 
         // Create Callback
         let callback = egui::PaintCallback {

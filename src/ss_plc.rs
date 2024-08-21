@@ -7,53 +7,96 @@ use glam::Vec4;
 
 use crate::collision::plc::{PLCEntry, PLC};
 
-/** Bit Field Definitions
- * Code 0:
- *  - 0x0000_003F |             |
- *  - 0x0000_0FC0 |             |
- *  - 0x0000_4000 |             | 8034b7b0
- *  - 0x0000_8000 |             | 8034b7b0
- *  - 0x0002_0000 |             | 8034b7b0
- *  - 0x0008_0000 |             | 8034b7b0
- *  - 0x0010_0000 |             | 8034b7b0
- *  - 0x0020_0000 |             |
- *  - 0x0040_0000 |             |
- *  - 0x0080_0000 |             | 8034b7b0
- *  - 0x0100_0000 |             | 8034b7b0
- *  - 0x1000_0000 |             |
- *  - 0x4000_0000 |             | 8034b7b0
- *
- * Code 1:
- *  - 0x0000_00FF |             |
- *  - 0x0000_0F00 |             |
- *  - 0x000E_0000 |             |
- *  - 0x01F0_0000 | Ground Type |
- *  - 0x0200_0000 |             |
- *  - 0x0400_0000 |             | 8034b7b0
- *  - 0x0800_0000 |             | 8034b7b0
- *  - 0xF000_0000 |             | 8034b7b0
- *
- * Code 2:
- *  - 0x0000_00FF |             |
- *  - 0x0000_FF00 |             |
- *  - 0x00FF_0000 |             |
- *  - 0xFF00_0000 |             |
- *
- * Code 3:
- *  - 0x0000_07E0 | limited to 0-31 |
- *
- * Code 4:
- *  - 0xFFFF_FFFF | | 8034b4c0
- */
+#[derive(Debug, Clone)]
+pub struct ShiftMask {
+    pub code_idx: usize,
+    pub shift: u32,
+    pub mask: u32,
+}
+impl ShiftMask {
+    const fn new(code_idx: usize, shift: u32, mask: u32) -> Self {
+        Self {
+            code_idx,
+            shift,
+            mask,
+        }
+    }
+}
+pub enum EntryType {
+    Norm,
+    Range(ShiftMask),
+    Single(ShiftMask),
+}
+
+use EntryType::*;
+pub const ENTRY_FILTER: [EntryType; 32] = [
+    EntryType::Norm,
+    Range(ShiftMask::new(0, 00, 0x3F)), //  - 0x0000_003F |                 |
+    Range(ShiftMask::new(0, 06, 0xFF)), //  - 0x0000_3FC0 |                 |
+    Single(ShiftMask::new(0, 14, 0x1)), //  - 0x0000_4000 |  Pass Obj       |
+    Single(ShiftMask::new(0, 15, 0x1)), //  - 0x0000_8000 |  Pass Camera    |
+    Single(ShiftMask::new(0, 16, 0x1)), //  - 0x0001_0000 |  Pass Link      |
+    Single(ShiftMask::new(0, 17, 0x1)), //  - 0x0002_0000 |  Pass Arrow     |
+    Single(ShiftMask::new(0, 18, 0x1)), //  - 0x0004_0000 |  Pass Slingshot |
+    Single(ShiftMask::new(0, 19, 0x1)), //  - 0x0008_0000 |  Pass Beetle    |
+    Single(ShiftMask::new(0, 20, 0x1)), //  - 0x0010_0000 |  Pass Clawshot  |
+    Single(ShiftMask::new(0, 21, 0x1)), //  - 0x0020_0000 |  Pass Z-Target  |
+    Single(ShiftMask::new(0, 22, 0x1)), //  - 0x0040_0000 |  Pass Shadow    |
+    Single(ShiftMask::new(0, 23, 0x1)), //  - 0x0080_0000 |  Pass Bomb      |
+    Single(ShiftMask::new(0, 24, 0x1)), //  - 0x0100_0000 |  Pass Whip      |
+    Range(ShiftMask::new(0, 28, 0x3)),  //  - 0x3000_0000 |                 |
+    Single(ShiftMask::new(0, 30, 0x1)), //  - 0x4000_0000 |                 | 8034b7b0
+    Single(ShiftMask::new(0, 31, 0x1)), //  - 0x8000_0000 |                 |
+    Range(ShiftMask::new(1, 0, 0xFF)),  //  - 0x0000_00FF |                 |
+    Range(ShiftMask::new(1, 8, 0xF)),   //  - 0x0000_0F00 |                 |
+    Range(ShiftMask::new(1, 17, 0x7)),  //  - 0x000E_0000 |                 |
+    Range(ShiftMask::new(1, 20, 0x1F)), //  - 0x01F0_0000 | Ground Type     |
+    Single(ShiftMask::new(1, 25, 0x1)), //  - 0x0200_0000 |                 |
+    Single(ShiftMask::new(1, 26, 0x1)), //  - 0x0400_0000 |                 | 8034b7b0
+    Single(ShiftMask::new(1, 27, 0x1)), //  - 0x0800_0000 |                 | 8034b7b0
+    Range(ShiftMask::new(1, 28, 0xF)),  //  - 0xF000_0000 |                 | 8034b7b0
+    Range(ShiftMask::new(2, 0, 0xFF)),  //  - 0x0000_00FF |                 |
+    Range(ShiftMask::new(2, 8, 0xFF)),  //  - 0x0000_FF00 |                 |
+    Range(ShiftMask::new(2, 16, 0xFF)), //  - 0x00FF_0000 |                 |
+    Range(ShiftMask::new(2, 24, 0xFF)), //  - 0xFF00_0000 |                 |
+    Range(ShiftMask::new(3, 0, 0x1F)),  //  - 0x0000_001F | limited to 0-31 | 0xC is Vines
+    Range(ShiftMask::new(3, 5, 0x3F)),  //  - 0x0000_07E0 | limited to 0-31 | 0xC is Vines
+    Range(ShiftMask::new(4, 0, 0xFFFFFFFF)), //  - 0x0000_07E0 | limited to 0-31 | 0xC is Vines
+];
 
 impl PLCEntry {
-    pub fn get_color(&self) -> Vec4 {
-        let val = (self.codes[1] >> 0x14) & 0x1F;
-        return Vec4::splat(val as f32 / 31f32).with_w(1.0f32);
-        match val {
-            0..32 => Vec4::splat(self.codes[1] as f32 / 31f32).with_w(1.0f32),
-            _ => Vec4::new(0.0f32, 0.0f32, 0.0f32, 0.0f32),
+    pub fn get_color(&self, filter_type: usize, range_selection: u32) -> Option<Vec4> {
+        let val = ENTRY_FILTER.get(filter_type);
+        if let Some(val) = val {
+            match *val {
+                Norm => return None,
+                Range(ShiftMask {
+                    code_idx,
+                    shift,
+                    mask,
+                }) => {
+                    let code = (self.codes[code_idx] >> shift) & mask;
+                    if code == range_selection {
+                        return Some(Vec4::ZERO.with_w(1.0f32).with_y(0.6f32));
+                    }
+                    return Some(Vec4::splat((code as f32) / (mask as f32)).with_w(1.0f32));
+                }
+                Single(ShiftMask {
+                    code_idx,
+                    shift,
+                    mask,
+                }) => {
+                    let code = (self.codes[code_idx] >> shift) & mask;
+
+                    if (code & 1) == 1 {
+                        return Some(Vec4::new(0.0f32, 0.7f32, 0.0f32, 1.0f32));
+                    } else {
+                        return Some(Vec4::new(1f32, 1f32, 1f32, 1f32));
+                    }
+                }
+            };
         }
+        None
     }
 }
 

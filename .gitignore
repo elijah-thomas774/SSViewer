@@ -3,3 +3,8 @@ __pycache__/
 
 # Used Directory
 Collision Files
+
+*.kcl
+*.plc
+*.dzb
+*.arc

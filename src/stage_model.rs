@@ -1,6 +1,6 @@
 use std::{
     fs, io::Cursor, iter::zip, mem::offset_of, path::PathBuf, ptr::slice_from_raw_parts,
-    str::FromStr,
+    str::FromStr, usize,
 };
 
 use eframe::glow;
@@ -16,6 +16,7 @@ use crate::{
         shader::{Shader, ShaderUniformTypes},
         Vertex,
     },
+    ss_plc,
 };
 
 impl KCL {
@@ -162,9 +163,7 @@ impl Stage {
                     let kcl = KCL::from_file(&mut Cursor::new(&fs::read(kcl_path.clone())?))?;
                     let plc = PLC::from_file(&mut Cursor::new(&fs::read(plc_path.clone())?))?;
 
-                    // plc.dump(
-                    //     &mut fs::File::create(format!("{}.txt", plc_path.display())).unwrap(),
-                    // );
+                    plc.dump(&mut fs::File::create(format!("{}.txt", plc_path.display())).unwrap());
 
                     let model = CollisionModel::from_kcl(
                         gl,
@@ -262,12 +261,32 @@ impl CollisionModel {
         }
     }
 
-    pub fn update_tri(&mut self, gl: &glow::Context) {
+    pub fn update_tri(&mut self, gl: &glow::Context, property_entry: usize, range_selection: u32) {
         for tri in &mut self.tris {
             tri.clr = Vec4::splat(0.5f32);
         }
         unsafe {
             use glow::HasContext as _;
+
+            self.tri_properties
+                .iter()
+                .enumerate()
+                .for_each(|(i, prop)| {
+                    let clr = prop.get_color(property_entry, range_selection);
+                    match clr {
+                        Some(clr) => {
+                            self.tris[i * 3 + 0].clr = clr;
+                            self.tris[i * 3 + 1].clr = clr;
+                            self.tris[i * 3 + 2].clr = clr;
+                        }
+                        None => {
+                            let nrm = self.tris[i * 3].nrm.abs().xyzx().with_w(1.0f32);
+                            self.tris[i * 3 + 0].clr = nrm;
+                            self.tris[i * 3 + 1].clr = nrm;
+                            self.tris[i * 3 + 2].clr = nrm;
+                        }
+                    }
+                });
 
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.vbo));
             let bind_data = slice_from_raw_parts::<u8>(
@@ -416,5 +435,13 @@ impl Stage {
                 }
             }
         });
+    }
+
+    pub fn update_tris(&mut self, gl: &glow::Context, property_entry: usize, range_selection: u32) {
+        for room in &mut self.rooms {
+            for model in &mut room.models {
+                model.update_tri(gl, property_entry, range_selection);
+            }
+        }
     }
 }
