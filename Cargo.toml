@@ -1,0 +1,15 @@
+[package]
+name = "SSEditor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+binrw = "0.14.0"
+byteorder = "1.5.0"
+eframe = "0.28.1"
+egui = "0.28.1"
+egui_extras = "0.28.1"
+env_logger = "0.11.5"
+glam = "0.29.0"
+glob = "0.3.1"
+zerocopy = { version = "0.7.35", features = ["derive"] }
