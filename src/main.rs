@@ -44,7 +44,7 @@ fn main() -> eframe::Result {
 struct MyApp {
     /// Behind an `Arc<Mutex<…>>` so we can pass it to [`egui::PaintCallback`] and paint later.
     model: Vec<Arc<Mutex<Stage>>>,
-    selected_stage: usize,
+    selected_stage: Option<usize>,
     wireframe: bool,
     show_normals: bool,
     shader: Shader,
@@ -103,7 +103,7 @@ impl MyApp {
                 .into_iter()
                 .map(|stage| Arc::new(Mutex::new(stage)))
                 .collect(),
-            selected_stage: 0,
+            selected_stage: None,
             wireframe: false,
             show_normals: false,
             shader,
@@ -132,9 +132,11 @@ impl eframe::App for MyApp {
                 .show(ui, |ui| {
                     self.model.iter().enumerate().for_each(|(i, stage)| {
                         let mut stage = stage.lock();
-                        ui.selectable_value(&mut self.selected_stage, i, stage.name.clone());
-                        if i == self.selected_stage {
-                            stage.collision_selection(ui, frame);
+                        ui.selectable_value(&mut self.selected_stage, Some(i), stage.name.clone());
+                        if let Some(select) = self.selected_stage {
+                            if i == select {
+                                stage.collision_selection(ui, frame);
+                            }
                         }
                     });
                 });
@@ -160,13 +162,18 @@ impl eframe::App for MyApp {
 impl MyApp {
     fn handle_input(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, response: &Response) {
         let _ = ui;
-        self.model[self.selected_stage]
-            .lock()
-            .handle_input(ui, ctx, response, self.cam_speed);
+        if let Some(selected_stage) = self.selected_stage {
+            self.model[selected_stage]
+                .lock()
+                .handle_input(ui, ctx, response, self.cam_speed);
+        }
     }
 
     fn custom_painting(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         // let size = ctx.input(|i| i.viewport().inner_rect.unwrap().size());
+        if self.selected_stage == None {
+            return;
+        }
         let size = ui.available_size();
 
         let (rect, response) = ui.allocate_at_least(size, egui::Sense::drag());
@@ -177,7 +184,7 @@ impl MyApp {
         self.handle_input(ui, ctx, &response);
 
         // Clone to Give to callback
-        let stage = self.model[self.selected_stage].clone();
+        let stage = self.model[self.selected_stage.unwrap()].clone();
         let shader = self.shader.clone();
         let norm_shader = self.nrm_shader.clone();
         let black_shader = self.black_shader.clone();
