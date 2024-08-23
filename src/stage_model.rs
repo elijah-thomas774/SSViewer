@@ -9,6 +9,7 @@ use glam::{Mat4, Quat, Vec3, Vec3Swizzles, Vec4};
 
 use crate::{
     collision::{
+        dzb::DZB,
         kcl::KCL,
         plc::{PLCEntry, PLC},
     },
@@ -16,7 +17,7 @@ use crate::{
         shader::{Shader, ShaderUniformTypes},
         Vertex,
     },
-    ss_plc,
+    stage_model,
 };
 
 impl KCL {
@@ -34,6 +35,28 @@ impl KCL {
                 ));
             }
             props.push(plc.entries[prism.attribute as usize].clone());
+        }
+
+        (verts, props)
+    }
+}
+
+impl DZB {
+    pub fn get_verts(&self, gl: &glow::Context, plc: &PLC) -> (Vec<Vertex>, Vec<PLCEntry>) {
+        let _ = gl;
+        let mut verts = Vec::<Vertex>::new();
+        let mut props = Vec::<PLCEntry>::new();
+
+        for tri in &self.tris {
+            let v1: Vec3 = self.verts[tri.vert_idx[0] as usize];
+            let v2: Vec3 = self.verts[tri.vert_idx[1] as usize];
+            let v3: Vec3 = self.verts[tri.vert_idx[2] as usize];
+
+            let nrm = (v2 - v1).cross(v3 - v1).normalize();
+            verts.push(Vertex::new(v1, nrm, nrm.abs().xyzx().with_w(1.0f32)));
+            verts.push(Vertex::new(v2, nrm, nrm.abs().xyzx().with_w(1.0f32)));
+            verts.push(Vertex::new(v3, nrm, nrm.abs().xyzx().with_w(1.0f32)));
+            props.push(plc.entries[tri.prop_idx as usize].clone());
         }
 
         (verts, props)
@@ -125,12 +148,52 @@ impl Stage {
             rooms: Vec::new(),
         };
 
-        // Read Root Stage Collisions (dzb stuffs)
-        let _addons =
-            glob::glob(format!("{}/addon/", dir.display()).as_str()).expect("Invalid Glob pattern");
-        // NYI
+        ///////////////////////////////////////////////////////////////////////////////////////////
+        //                      Read Stage DZB and PLC entries                                   //
+        ///////////////////////////////////////////////////////////////////////////////////////////
 
-        // Read Stage Room Collisions
+        let mut room = Room {
+            name: String::from("Stage Additions"),
+            render: true,
+            models: Vec::new(),
+        };
+
+        let dzb_files_names = glob::glob(format!("{}/addon/*.dzb", dir.display()).as_str())
+            .expect("Invalid Glob pattern");
+        let plc_files_names = glob::glob(format!("{}/addon/*.plc", dir.display()).as_str())
+            .expect("Invalid Glob pattern");
+        // Make sure the entries match then parse/insert into the room
+        for entry in zip(dzb_files_names, plc_files_names) {
+            if let (Ok(dzb_path), Ok(plc_path)) = entry {
+                // Check File names
+                let dzb_file_name = dzb_path.file_stem().expect("Not a File");
+                let plc_file_name = plc_path.file_stem().expect("Not a File");
+
+                let dzb = DZB::from_file(&mut Cursor::new(&fs::read(dzb_path.clone())?))?;
+                let plc = PLC::from_file(&mut Cursor::new(&fs::read(plc_path.clone())?))?;
+
+                print!("{}: ", stage_str);
+                let mut model = CollisionModel::from_dzb(
+                    gl,
+                    String::from_str(dzb_file_name.to_str().unwrap()).unwrap(),
+                    &dzb,
+                    &plc,
+                );
+
+                model.render = false;
+
+                room.models.push(model);
+            }
+        }
+
+        if room.models.len() != 0 {
+            stage.rooms.push(room);
+        }
+
+        ///////////////////////////////////////////////////////////////////////////////////////////
+        //                             Read Stage Room entries                                   //
+        ///////////////////////////////////////////////////////////////////////////////////////////
+
         let rooms = glob::glob(format!("{}/rooms/*", dir.display()).as_str())?;
 
         for room_path_str in rooms {
@@ -141,7 +204,7 @@ impl Stage {
 
             // Create Room
             let mut room = Room {
-                name: room_name,
+                name: room_name.clone(),
                 render: true,
                 models: Vec::new(),
             };
@@ -163,12 +226,11 @@ impl Stage {
                     let kcl = KCL::from_file(&mut Cursor::new(&fs::read(kcl_path.clone())?))?;
                     let plc = PLC::from_file(&mut Cursor::new(&fs::read(plc_path.clone())?))?;
 
-                    plc.dump(&mut fs::File::create(format!("{}.txt", plc_path.display())).unwrap());
-
+                    print!("{} {}: ", stage_str, room_name);
                     let model = CollisionModel::from_kcl(
                         gl,
                         String::from_str(kcl_file_name.to_str().unwrap()).unwrap(),
-                        kcl,
+                        &kcl,
                         &plc,
                     );
 
@@ -177,6 +239,57 @@ impl Stage {
             }
             stage.rooms.push(room);
         }
+
+        ///////////////////////////////////////////////////////////////////////////////////////////
+        //                             Read Oarc entries                                         //
+        ///////////////////////////////////////////////////////////////////////////////////////////
+
+        if stage_str.contains("Oarc") {
+            let object_dirs =
+                glob::glob(format!("{}/*", dir.display()).as_str()).expect("Failed Glob Pattern");
+            for obj_path in object_dirs {
+                if let Ok(obj_path) = obj_path {
+                    let obj_name =
+                        String::from_str(obj_path.file_name().unwrap().to_str().unwrap()).unwrap();
+                    let mut room = Room {
+                        name: obj_name.clone(),
+                        render: false,
+                        models: Vec::new(),
+                    };
+                    let dzb_files_names =
+                        glob::glob(format!("{}/*.dzb", obj_path.display()).as_str())
+                            .expect("Invalid Glob pattern");
+                    let plc_files_names =
+                        glob::glob(format!("{}/*.plc", obj_path.display()).as_str())
+                            .expect("Invalid Glob pattern");
+                    // Make sure the entries match then parse/insert into the room
+                    for entry in zip(dzb_files_names, plc_files_names) {
+                        if let (Ok(dzb_path), Ok(plc_path)) = entry {
+                            // Check File names
+                            let dzb_file_name = dzb_path.file_stem().expect("Not a File");
+                            let plc_file_name = plc_path.file_stem().expect("Not a File");
+
+                            let dzb =
+                                DZB::from_file(&mut Cursor::new(&fs::read(dzb_path.clone())?))?;
+                            let plc =
+                                PLC::from_file(&mut Cursor::new(&fs::read(plc_path.clone())?))?;
+
+                            print!("{} {}: ", stage_str, obj_name);
+                            let model = CollisionModel::from_dzb(
+                                gl,
+                                String::from_str(dzb_file_name.to_str().unwrap()).unwrap(),
+                                &dzb,
+                                &plc,
+                            );
+
+                            room.models.push(model);
+                        }
+                    }
+                    stage.rooms.push(room);
+                }
+            }
+        }
+
         stage.update();
 
         Ok(stage)
@@ -201,8 +314,72 @@ impl Stage {
 }
 
 impl CollisionModel {
-    fn from_kcl(gl: &glow::Context, name: String, kcl: KCL, plc: &PLC) -> Self {
+    fn from_kcl(gl: &glow::Context, name: String, kcl: &KCL, plc: &PLC) -> Self {
         let (tris, tri_properties) = kcl.get_verts(gl, &plc);
+
+        println!("{}: Creating KCL Model", name.clone());
+
+        unsafe {
+            use glow::HasContext as _;
+
+            // Create Vertex Array
+            let vao = gl
+                .create_vertex_array()
+                .expect("Cannot create vertex array");
+
+            // Create Vertex Buffer
+            let vbo = gl.create_buffer().expect("Cannot create vertex buffer");
+
+            let bind_data = slice_from_raw_parts::<u8>(
+                tris.as_ptr() as *const u8,
+                tris.len() * size_of::<Vertex>(),
+            )
+            .as_ref()
+            .unwrap();
+
+            gl.bind_vertex_array(Some(vao));
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
+
+            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bind_data, glow::STATIC_DRAW);
+
+            gl.enable_vertex_attrib_array(0);
+            gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, size_of::<Vertex>() as _, 0);
+            gl.enable_vertex_attrib_array(1);
+            gl.vertex_attrib_pointer_f32(
+                1,
+                3,
+                glow::FLOAT,
+                false,
+                size_of::<Vertex>() as _,
+                offset_of!(Vertex, nrm) as _,
+            );
+            gl.enable_vertex_attrib_array(2);
+            gl.vertex_attrib_pointer_f32(
+                2,
+                4,
+                glow::FLOAT,
+                false,
+                size_of::<Vertex>() as _,
+                offset_of!(Vertex, clr) as _,
+            );
+
+            gl.bind_vertex_array(None);
+            Self {
+                name,
+                render: true,
+                // kcl,
+                tri_properties,
+                tris,
+                vao,
+                vbo,
+            }
+        }
+    }
+
+    pub fn from_dzb(gl: &glow::Context, name: String, dzb: &DZB, plc: &PLC) -> Self {
+        let (tris, tri_properties) = dzb.get_verts(gl, &plc);
+
+        println!("{}: Creating DZB Model", name.clone());
 
         unsafe {
             use glow::HasContext as _;

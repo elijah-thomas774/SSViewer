@@ -5,11 +5,12 @@ The python script requires nlzss11
 `pip install nlzss11`
 
 This viewer required the Stage files to be preprocessed from the game.
-- `python pre_process.py -i <STAGE_DIR>`
-    - `<STAGE_DIR>` is the stage file directory. An example would be if you have the rando:  
-    `python pre_process.py -i "<RANDO_DIR>\actual-extract\DATA\files\Stage"`
+- `python pre_process.py -i <SS_EXTRACT_FILES>`
+    - `<SS_EXTRACT_FILES>` is the files or romfs directory. Examples would be:
+        - SD:`python pre_process.py -i "<RANDO_DIR>\actual-extract\DATA\files"`
+        - HD:`python pre_process.py -i "<HD_EXTRACT>\romfs"`
 
-Once Stages are preprocessed, just running `cargo run` will run the application :)
+Once Stages are preprocessed, just running `cargo run` will run the application. (Ensure rust is updated via `rustup update`) :)
 
 # Controls
 

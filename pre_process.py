@@ -41,12 +41,14 @@ def read_octree():
         print(octree)
 
 
-def preprocess_stages(stage_dir):
+def preprocess_stages(data_dir):
     output_dir = Path("Collision Files")
 
     # If output_dir doesnt exist
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
+
+    stage_dir = data_dir / "Stage"
 
     # List of Stages
     stages = os.listdir(stage_dir)
@@ -84,25 +86,27 @@ def preprocess_stages(stage_dir):
             print(f"ERR: Unable to Process {stage}: Could not read or decompress data")
             continue
 
-        layer_arc = U8File.parse_u8(BytesIO(data))
-        layer_paths = layer_arc.get_all_paths()
+        l_arc = U8File.parse_u8(BytesIO(data))
+        layer_paths = l_arc.get_all_paths()
         
 
         plc_dat = []
         dzb_dat = []
         
         rarc_dat = []
+        oarc_dat = []
+
         for l_path in layer_paths:
             split_path = l_path.split("/")
             l_folder_type = split_path[1]
             l_file_name = split_path[-1]
             if l_folder_type == "dat":
                 if l_file_name.endswith(".plc"):
-                    plc_dat.append((l_file_name, layer_arc.get_file_data(l_path)))
+                    plc_dat.append((l_file_name, l_arc.get_file_data(l_path)))
             elif l_folder_type == "dzb":
-                dzb_dat.append((l_file_name, layer_arc.get_file_data(l_path)))
+                dzb_dat.append((l_file_name, l_arc.get_file_data(l_path)))
             elif l_folder_type == "rarc":
-                r_arc = U8File.parse_u8(BytesIO(layer_arc.get_file_data(l_path)))
+                r_arc = U8File.parse_u8(BytesIO(l_arc.get_file_data(l_path)))
                 r_paths = r_arc.get_all_paths()
 
                 r_dat = []
@@ -122,6 +126,60 @@ def preprocess_stages(stage_dir):
                 room_id = int(l_file_name[-6:-4]) # r##
                 room_name = f"Room {room_id}"
                 rarc_dat.append((room_name, r_dat, r_kcl))
+            
+            elif l_folder_type == "oarc":
+                o_arc = U8File.parse_u8(BytesIO(l_arc.get_file_data(l_path)))
+                o_paths = o_arc.get_all_paths()
+
+                o_dat = []
+
+                for o_path in o_paths:
+                    split_path = o_path.split("/")
+                    o_folder_type = split_path[1]
+                    o_file_name = split_path[-1]
+                    if o_file_name.endswith(".plc"):
+                        o_dat.append((o_file_name, o_arc.get_file_data(o_path)))
+                    elif o_file_name.endswith(".dzb"):
+                        o_dat.append((o_file_name, o_arc.get_file_data(o_path)))
+                if len(o_dat) != 0:
+                    oarc_dat.append((l_file_name[:-4], o_dat))
+
+        object_dir = data_dir / "Object"
+
+        if os.path.exists( object_dir / "NX"):
+            object_dir = object_dir / "NX"
+
+        object_pack = object_dir / "ObjectPack.arc.LZ"
+
+        with open(object_pack, "rb") as f:
+            data = f.read()
+        
+        data = nlzss11.decompress(data)
+
+        archive = U8File.parse_u8(BytesIO(data))
+        paths = archive.get_all_paths()
+        for path in paths:
+            split_path = path.split("/")
+            folder_type = split_path[1]
+            file_name = split_path[-1]
+
+            if folder_type == "oarc":
+                o_arc = U8File.parse_u8(BytesIO(archive.get_file_data(path)))
+                o_paths = o_arc.get_all_paths()
+
+                o_dat = []
+
+                for o_path in o_paths:
+                    split_path = o_path.split("/")
+                    o_folder_type = split_path[1]
+                    o_file_name = split_path[-1]
+                    if o_file_name.endswith(".plc"):
+                        o_dat.append((o_file_name, o_arc.get_file_data(o_path)))
+                    elif o_file_name.endswith(".dzb"):
+                        o_dat.append((o_file_name, o_arc.get_file_data(o_path)))
+                if len(o_dat) != 0:
+                    oarc_dat.append((file_name[:-4], o_dat))
+
         
         # new layout will be
         #   <stage>
@@ -130,6 +188,9 @@ def preprocess_stages(stage_dir):
         #     rooms
         #       r##
         #        klc/plc pairing
+        #   Oarc
+        #     Objname
+        #       dzb/plc pairing
         curr_dir = output_dir / stage / "addon"
         os.makedirs(curr_dir, exist_ok=True)
         for stage_files in (dzb_dat + plc_dat):
@@ -146,12 +207,20 @@ def preprocess_stages(stage_dir):
                         f.write(room_files[1])
                     else:
                         print(room_files[0] + " has no data")
+        
+        curr_dir = output_dir / "Oarc"
+        os.makedirs(curr_dir, exist_ok=True)
+        for obj in oarc_dat:
+            os.makedirs(curr_dir / obj[0], exist_ok=True)
+            for obj_files in obj[1]:
+                with open(curr_dir / obj[0] / obj_files[0], "wb") as f:
+                    f.write(obj_files[1])       
 
 if __name__ == '__main__':
     import sys
     import argparse
     parser  = argparse.ArgumentParser()
-    parser.add_argument('-i', '--input', help="Input Source dir for Stage files. Must point to the `Stage` directory", required=True)
+    parser.add_argument('-i', '--input', help="Input Source dir for Skyward Sword Files. Must point to the `<SSHD_EXTRACT>\\romfs` or `<SS_EXTRACT>\\DATA\\files` directory", required=True)
 
     args = parser.parse_args(sys.argv[1:])
     print(args)
