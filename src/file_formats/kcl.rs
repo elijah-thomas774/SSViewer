@@ -21,8 +21,8 @@ struct Header {
     area_xy_blocks_shift: u32,
 }
 
-#[derive(Debug)]
-enum Octree {
+#[derive(Debug, Clone)]
+pub enum Octree {
     Leaf(Vec<u16>),
     Branch(Vec<Octree>),
 }
@@ -84,9 +84,9 @@ impl Octree {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[repr(C)]
-struct RawPrism {
+pub struct Prism {
     height: f32,
     pos_i: u16,
     fnrm_i: u16,
@@ -95,14 +95,14 @@ struct RawPrism {
 }
 
 #[derive(Debug, Clone)]
-pub struct Prism {
+pub struct KCLTriangle {
     pub vertices: [Vec3; 3],
-    pub edge_normals: [Vec3; 3],
+    // pub edge_normals: [Vec3; 3],
     pub face_normal: Vec3,
     pub attribute: u16,
 }
 
-impl RawPrism {
+impl Prism {
     pub fn from_buffer<R: Seek + Read>(reader: &mut R) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(Self {
             height: reader.read_f32::<BE>()?,
@@ -119,8 +119,14 @@ impl RawPrism {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct KCL {
-    pub prisms: Vec<Prism>,
+    pub vtx: Vec<Vec3>,
+    pub nrm: Vec<Vec3>,
+    pub prism: Vec<Prism>,
+    pub octree: Octree,
+    pub prism_thickness: f32,
+    pub area_min_pos: Vec3,
 }
 
 impl KCL {
@@ -157,7 +163,7 @@ impl KCL {
             | ((!header.area_y_width_mask >> shift) << header.area_x_blocks_shift)
             | (!header.area_x_width_mask >> shift);
 
-        let octree = Octree::new(header.block_data_offset, reader, num_initial);
+        let octree: Octree = Octree::new(header.block_data_offset, reader, num_initial);
 
         ///////////////////////////////////////////////////////////////////////////////////////////
         //                                    Read Prisms                                        //
@@ -169,13 +175,13 @@ impl KCL {
         // Seek to the offset provided by the header + 0x10 (size of raw prism since its 1 indexed)
         let _ = reader
             .seek(SeekFrom::Start(
-                (header.prism_data_offset as usize + std::mem::size_of::<RawPrism>()) as _,
+                (header.prism_data_offset as usize + std::mem::size_of::<Prism>()) as _,
             ))
             .expect("Should be in bounds");
 
         // Add all prisms
         for _ in 0..num_prisms {
-            raw_prisms.push(RawPrism::from_buffer(reader)?);
+            raw_prisms.push(Prism::from_buffer(reader)?);
         }
 
         ///////////////////////////////////////////////////////////////////////////////////////////
@@ -219,47 +225,53 @@ impl KCL {
         num_norms += 1;
 
         // Allocate space
-        let mut norm_vecs = Vec::with_capacity(num_norms as usize);
+        let mut normal_vecs = Vec::with_capacity(num_norms as usize);
 
         // Seek and Read
         reader
             .seek(SeekFrom::Start(header.nrm_data_offset as _))
             .expect("Should be in bounds");
         for _ in 0..num_norms {
-            norm_vecs.push(Vec3::new(
+            normal_vecs.push(Vec3::new(
                 reader.read_f32::<BE>()?,
                 reader.read_f32::<BE>()?,
                 reader.read_f32::<BE>()?,
             ));
         }
 
-        ///////////////////////////////////////////////////////////////////////////////////////////
-        //                                    Build Model                                        //
-        ///////////////////////////////////////////////////////////////////////////////////////////
+        Ok(Self {
+            vtx: position_vecs,
+            nrm: normal_vecs,
+            prism: raw_prisms,
+            octree: octree,
+            prism_thickness: header.prism_thickness,
+            area_min_pos: header.area_min_pos,
+        })
+    }
 
-        let mut prisms = Vec::with_capacity(raw_prisms.len());
-        for prism in raw_prisms {
-            let pos: Vec3 = position_vecs[prism.pos_i as usize];
-            let fnrm: Vec3 = norm_vecs[prism.fnrm_i as usize];
-            let enrm1: Vec3 = norm_vecs[prism.enrm_i[0] as usize];
-            let enrm2: Vec3 = norm_vecs[prism.enrm_i[1] as usize];
-            let enrm3: Vec3 = norm_vecs[prism.enrm_i[2] as usize];
+    pub fn get_triangles(&self) -> Vec<KCLTriangle> {
+        let mut tris = Vec::with_capacity(self.prism.len());
+        for prism in &self.prism {
+            let pos: Vec3 = self.vtx[prism.pos_i as usize];
+            let fnrm: Vec3 = self.nrm[prism.fnrm_i as usize];
+            let enrm1: Vec3 = self.nrm[prism.enrm_i[0] as usize];
+            let enrm2: Vec3 = self.nrm[prism.enrm_i[1] as usize];
+            let enrm3: Vec3 = self.nrm[prism.enrm_i[2] as usize];
 
-            let cross_a = enrm1.cross(fnrm);
-            let cross_b = enrm2.cross(fnrm);
+            let cross_a = fnrm.cross(enrm1);
+            let cross_b = fnrm.cross(enrm2);
 
-            prisms.push(Prism {
+            tris.push(KCLTriangle {
                 vertices: [
                     pos,
                     pos + cross_b * (prism.height / cross_b.dot(enrm3)),
                     pos + cross_a * (prism.height / cross_a.dot(enrm3)),
                 ],
                 face_normal: fnrm,
-                edge_normals: [enrm1, enrm2, enrm3],
+                // edge_normals: [enrm1, enrm2, enrm3],
                 attribute: prism.attribute,
             })
         }
-
-        Ok(Self { prisms })
+        tris
     }
 }

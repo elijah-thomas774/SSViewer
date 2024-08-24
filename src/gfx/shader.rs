@@ -1,6 +1,7 @@
 use eframe::glow;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 
+#[allow(dead_code)]
 pub enum ShaderUniformTypes<'a> {
     Mat4(&'a Mat4),
     Vec4(&'a Vec4),

@@ -1,25 +1,17 @@
+pub mod camera;
+pub mod mesh;
 pub mod shader;
+pub mod vertex;
 
-#[derive(Debug, Clone)]
-#[repr(C)]
-pub struct Vertex {
-    pub pos: glam::Vec3,
-    pub nrm: glam::Vec3,
-    pub clr: glam::Vec4,
-}
+pub use shader::Shader;
+pub use vertex::Vertex;
 
-impl Vertex {
-    pub fn new(pos: glam::Vec3, nrm: glam::Vec3, clr: glam::Vec4) -> Self {
-        Self { pos, nrm, clr }
-    }
-}
+use eframe::glow;
 
-impl Default for Vertex {
-    fn default() -> Self {
-        Self {
-            pos: Default::default(),
-            nrm: Default::default(),
-            clr: [1_f32, 1_f32, 1_f32, 1_f32].into(),
-        }
-    }
+pub trait Model {
+    fn setup_gl(&mut self, gl: &glow::Context);
+    fn destroy_gl(&mut self, gl: &glow::Context);
+    fn update_gl(&mut self, gl: &glow::Context);
+
+    fn draw(&mut self, gl: &glow::Context, shader: &Shader);
 }

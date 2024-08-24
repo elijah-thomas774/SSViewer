@@ -1,11 +1,8 @@
-use std::{
-    fs::{self, File},
-    io::Write,
-};
+use std::{fs, io::Write};
 
 use glam::Vec4;
 
-use crate::collision::plc::{PLCEntry, PLC};
+use crate::file_formats::{PLCEntry, PLC};
 
 #[derive(Debug, Clone)]
 pub struct ShiftMask {
@@ -13,6 +10,7 @@ pub struct ShiftMask {
     pub shift: u32,
     pub mask: u32,
 }
+
 impl ShiftMask {
     const fn new(code_idx: usize, shift: u32, mask: u32) -> Self {
         Self {
@@ -64,6 +62,70 @@ pub const ENTRY_FILTER: [EntryType; 32] = [
     Range(ShiftMask::new(4, 0, 0xFFFFFFFF)), //  - 0x0000_07E0 | limited to 0-31 | 0xC is Vines
 ];
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                               Pass Flags                                                          //
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[allow(dead_code)]
+impl PLCEntry {
+    pub fn get_pass_object(&self) -> bool {
+        self.codes[0] & 0x0000_4000 != 0
+    }
+    pub fn get_pass_camera(&self) -> bool {
+        self.codes[0] & 0x0000_8000 != 0
+    }
+    pub fn get_pass_link(&self) -> bool {
+        self.codes[0] & 0x0001_0000 != 0
+    }
+    pub fn get_pass_arrow(&self) -> bool {
+        self.codes[0] & 0x0002_0000 != 0
+    }
+    pub fn get_pass_slingshot(&self) -> bool {
+        self.codes[0] & 0x0004_0000 != 0
+    }
+    pub fn get_pass_beetle(&self) -> bool {
+        self.codes[0] & 0x0008_0000 != 0
+    }
+    pub fn get_pass_clawshot(&self) -> bool {
+        self.codes[0] & 0x0010_0000 != 0
+    }
+    pub fn get_pass_target(&self) -> bool {
+        self.codes[0] & 0x0020_0000 != 0
+    }
+    pub fn get_pass_shadow(&self) -> bool {
+        self.codes[0] & 0x0040_0000 != 0
+    }
+    pub fn get_pass_bomb(&self) -> bool {
+        self.codes[0] & 0x0080_0000 != 0
+    }
+    pub fn get_pass_whip(&self) -> bool {
+        self.codes[0] & 0x0100_0000 != 0
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                               Other Attributes                                                    //
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+impl PLCEntry {}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                               Misc                                                                //
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[allow(dead_code)]
+impl PLC {
+    pub fn dump(&self, file: &mut fs::File) {
+        for entry in &self.entries {
+            let [code0, code1, code2, code3, code4] = entry.codes;
+            let _ = file.write(
+                format!("{code0:08X?} {code1:08X?} {code2:08X?} {code3:08X?} {code4:08X?}\n")
+                    .as_bytes(),
+            );
+        }
+    }
+}
+
 impl PLCEntry {
     pub fn get_color(&self, filter_type: usize, range_selection: u32) -> Option<Vec4> {
         let val = ENTRY_FILTER.get(filter_type);
@@ -97,17 +159,5 @@ impl PLCEntry {
             };
         }
         None
-    }
-}
-
-impl PLC {
-    pub fn dump(&self, file: &mut fs::File) {
-        for entry in &self.entries {
-            let [code0, code1, code2, code3, code4] = entry.codes;
-            let _ = file.write(
-                format!("{code0:08X?} {code1:08X?} {code2:08X?} {code3:08X?} {code4:08X?}\n")
-                    .as_bytes(),
-            );
-        }
     }
 }

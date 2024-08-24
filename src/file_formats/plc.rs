@@ -26,7 +26,7 @@ impl PLC {
         let entry_size = reader.read_u16::<BE>()?;
         let num_entries = reader.read_u16::<BE>()?;
 
-        if (entry_size != 0x14) {
+        if entry_size != 0x14 {
             return Err(Box::new(Error::new(
                 ErrorKind::InvalidData,
                 "Invalid Entry Size",

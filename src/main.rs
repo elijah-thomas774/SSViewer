@@ -6,20 +6,21 @@ use eframe::{egui, egui_glow, glow};
 use egui::mutex::Mutex;
 use egui::panel::Side;
 use egui::{Color32, Id, Response};
-use ss_plc::ENTRY_FILTER;
-use stage_model::Stage;
+use ss_viewer::plc::{EntryType, ENTRY_FILTER};
+use ss_viewer::scene::Scene;
+// use stage_model::Stage;
 
 use core::f32;
 use std::fs;
 use std::ops::RangeInclusive;
 use std::sync::Arc;
 
-mod collision;
+mod file_formats;
 mod gfx;
-mod ss_plc;
-mod stage_model;
+mod ss_viewer;
 
-use gfx::shader::Shader;
+use gfx::shader::{Shader, ShaderUniformTypes};
+use gfx::Model;
 
 const WIDTH: f32 = 1600f32;
 const HEIGHT: f32 = 900f32;
@@ -33,9 +34,11 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default().with_inner_size([WIDTH, HEIGHT]),
         multisampling: 2,
         depth_buffer: 24,
+
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
+
     eframe::run_native(
         "Skyward Sword Collision Viewer",
         options,
@@ -45,15 +48,15 @@ fn main() -> eframe::Result {
 
 struct MyApp {
     /// Behind an `Arc<Mutex<…>>` so we can pass it to [`egui::PaintCallback`] and paint later.
-    model: Vec<Arc<Mutex<Stage>>>,
-    selected_stage: Option<usize>,
+    model: Vec<Arc<Mutex<Scene>>>,
+    selected_scene: Option<usize>,
     wireframe: bool,
     show_normals: bool,
     shader: Shader,
     nrm_shader: Shader,
     black_shader: Shader,
     cam_speed: f32,
-    property_filter: usize,
+    property_entry: usize,
     range_selection: u32,
     bg_color: Color32,
 }
@@ -90,13 +93,13 @@ impl MyApp {
         //                                    Load Stages                                        //
         ///////////////////////////////////////////////////////////////////////////////////////////
 
-        let mut stage_map: Vec<Stage> = Vec::new();
+        let mut scene_map: Vec<Scene> = Vec::new();
 
         let stages =
             glob::glob(format!("{COLLISION_SRC_DIR}/*").as_str()).expect("Invalid Glob pattern");
         for stage_path in stages {
             let stage_path = stage_path.expect("Glob Error Encountered");
-            stage_map.push(Stage::from_dir(gl, stage_path).expect("Could not Read Stage"));
+            scene_map.push(Scene::from_dir(stage_path).expect("Could not Read Stage"));
         }
 
         ///////////////////////////////////////////////////////////////////////////////////////////
@@ -104,18 +107,18 @@ impl MyApp {
         ///////////////////////////////////////////////////////////////////////////////////////////
 
         Self {
-            model: stage_map
+            model: scene_map
                 .into_iter()
-                .map(|stage| Arc::new(Mutex::new(stage)))
+                .map(|scene| Arc::new(Mutex::new(scene)))
                 .collect(),
-            selected_stage: None,
+            selected_scene: None,
             wireframe: false,
             show_normals: false,
             shader,
             nrm_shader,
             black_shader,
             cam_speed: 30f32,
-            property_filter: 0,
+            property_entry: 0,
             range_selection: 0,
             bg_color: Color32::from_rgb(10, 10, 10),
         }
@@ -133,9 +136,9 @@ impl eframe::App for MyApp {
             egui::ComboBox::from_label("Property Filter")
                 .selected_text(format!(
                     "{}",
-                    match &ENTRY_FILTER[self.property_filter] {
-                        ss_plc::EntryType::Norm => format!("Normals"),
-                        ss_plc::EntryType::Range(val) | ss_plc::EntryType::Single(val) => {
+                    match &ENTRY_FILTER[self.property_entry] {
+                        EntryType::Norm => format!("Normals"),
+                        EntryType::Range(val) | EntryType::Single(val) => {
                             format!("Code {}: 0x{:08X}", val.code_idx, val.mask << val.shift)
                         }
                     }
@@ -143,26 +146,25 @@ impl eframe::App for MyApp {
                 .show_ui(ui, |ui| {
                     for i in 0..ENTRY_FILTER.len() {
                         let text = match &ENTRY_FILTER[i] {
-                            ss_plc::EntryType::Norm => format!("Normals"),
-                            ss_plc::EntryType::Range(val) | ss_plc::EntryType::Single(val) => {
+                            EntryType::Norm => format!("Normals"),
+                            EntryType::Range(val) | EntryType::Single(val) => {
                                 format!("Code {}: 0x{:08X}", val.code_idx, val.mask << val.shift)
                             }
                         };
                         if ui
-                            .selectable_value(&mut self.property_filter, i, text)
-                            .clicked()
+                            .selectable_value(&mut self.property_entry, i, text)
+                            .changed()
                         {
-                            self.model.iter().for_each(|stage| {
-                                let mut stage = stage.lock();
-                                if let Some(_) = self.selected_stage {
-                                    stage.update_tris(frame.gl().unwrap(), i, self.range_selection);
-                                }
+                            self.model.iter().for_each(|scene| {
+                                let mut scene = scene.lock();
+                                scene.update_scene_property_filter(i, self.range_selection);
+                                scene.update_gl(frame.gl().unwrap());
                             });
                         }
                     }
                 });
-            match &ENTRY_FILTER[self.property_filter] {
-                ss_plc::EntryType::Range(val) => {
+            match &ENTRY_FILTER[self.property_entry] {
+                EntryType::Range(val) => {
                     if ui
                         .add(
                             egui::Slider::new(&mut self.range_selection, 0..=val.mask)
@@ -171,34 +173,58 @@ impl eframe::App for MyApp {
                         )
                         .changed()
                     {
-                        self.model.iter().for_each(|stage| {
-                            let mut stage = stage.lock();
-                            if let Some(_) = self.selected_stage {
-                                stage.update_tris(
-                                    frame.gl().unwrap(),
-                                    self.property_filter,
-                                    self.range_selection,
-                                );
-                            }
+                        self.model.iter().for_each(|scene| {
+                            let mut scene = scene.lock();
+                            scene.update_scene_property_filter(
+                                self.property_entry,
+                                self.range_selection,
+                            );
                         });
+
+                        if let Some(scene_index) = self.selected_scene {
+                            self.model[scene_index]
+                                .lock()
+                                .update_gl(frame.gl().unwrap());
+                        }
                     }
                 }
                 _ => {}
             };
-            // ui.color_edit_button_srgba(&mut self.bg_color);
+            ui.horizontal(|ui| {
+                ui.color_edit_button_srgba(&mut self.bg_color);
+                ui.label("BG Color");
+            });
 
             ui.add(egui::Separator::default());
 
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    self.model.iter().enumerate().for_each(|(i, stage)| {
-                        let mut stage = stage.lock();
-                        ui.selectable_value(&mut self.selected_stage, Some(i), stage.name.clone());
-                        if let Some(select) = self.selected_stage {
-                            if i == select {
-                                stage.collision_selection(ui, frame);
+                    self.model.iter().enumerate().for_each(|(i, scene)| {
+                        let mut scene = scene.lock();
+                        if ui
+                            .add(egui::SelectableLabel::new(
+                                self.selected_scene == Some(i),
+                                scene.get_root_name(),
+                            ))
+                            .clicked()
+                        {
+                            // No Need to change if it is the same
+                            if Some(i) != self.selected_scene {
+                                // Add the new gl
+                                scene.setup_gl(frame.gl().unwrap());
+
+                                // Remove the old gl
+                                if let Some(old_scene) = self.selected_scene {
+                                    self.model[old_scene].lock().destroy_gl(frame.gl().unwrap());
+                                }
+
+                                // Update Selection
+                                self.selected_scene = Some(i);
                             }
+                        }
+                        if Some(i) == self.selected_scene {
+                            scene.visibility_ui(ui);
                         }
                     });
                 });
@@ -210,6 +236,7 @@ impl eframe::App for MyApp {
                     self.custom_painting(ui, ctx);
                 });
         });
+        ctx.request_repaint();
     }
 
     fn on_exit(&mut self, gl: Option<&glow::Context>) {
@@ -218,7 +245,7 @@ impl eframe::App for MyApp {
             self.nrm_shader.destroy(gl);
             self.model
                 .iter_mut()
-                .for_each(|stage| stage.lock().destroy(gl));
+                .for_each(|stage| stage.lock().destroy_gl(gl));
         }
     }
 }
@@ -226,16 +253,52 @@ impl eframe::App for MyApp {
 impl MyApp {
     fn handle_input(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, response: &Response) {
         let _ = ui;
-        if let Some(selected_stage) = self.selected_stage {
-            self.model[selected_stage]
-                .lock()
-                .handle_input(ui, ctx, response, self.cam_speed);
+        if self.selected_scene.is_none() {
+            return;
         }
+        let selected_scene = self.selected_scene.unwrap();
+        let scene = &mut self.model[selected_scene].lock();
+
+        let cam = &mut scene.camera;
+
+        ctx.input(|i| {
+            let amount = (self.cam_speed * i.predicted_dt as f32 * 2.0f32) as f32;
+            // let mut update_model = false;
+
+            if i.key_down(egui::Key::W) {
+                cam.move_forward(amount);
+            }
+            if i.key_down(egui::Key::S) {
+                cam.move_backward(amount);
+            }
+            if i.key_down(egui::Key::A) {
+                cam.move_left(amount);
+            }
+            if i.key_down(egui::Key::D) {
+                cam.move_right(amount);
+            }
+            if i.key_down(egui::Key::Space) {
+                cam.move_up(amount);
+            }
+            if i.modifiers.shift {
+                cam.move_down(amount);
+            }
+
+            if i.key_down(egui::Key::Equals) {
+                // self.scale(0.01);
+            }
+            if i.key_down(egui::Key::Minus) {
+                // self.scale(-0.01);
+            }
+        });
+
+        cam.move_yaw(response.drag_motion().x * 0.1);
+        cam.move_pitch(-response.drag_motion().y * 0.1);
     }
 
     fn custom_painting(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         // let size = ctx.input(|i| i.viewport().inner_rect.unwrap().size());
-        if self.selected_stage == None {
+        if self.selected_scene.is_none() {
             return;
         }
         let size = ui.available_size();
@@ -248,7 +311,7 @@ impl MyApp {
         self.handle_input(ui, ctx, &response);
 
         // Clone to Give to callback
-        let stage = self.model[self.selected_stage.unwrap()].clone();
+        let scene = self.model[self.selected_scene.unwrap()].clone();
         let shader = self.shader.clone();
         let norm_shader = self.nrm_shader.clone();
         let black_shader = self.black_shader.clone();
@@ -260,7 +323,7 @@ impl MyApp {
         let callback = egui::PaintCallback {
             rect,
             callback: std::sync::Arc::new(egui_glow::CallbackFn::new(move |_info, painter| {
-                let stage = stage.lock();
+                let scene = &mut scene.lock();
                 let gl = painter.gl();
                 unsafe {
                     use glow::HasContext as _;
@@ -270,18 +333,24 @@ impl MyApp {
                     } else {
                         gl.polygon_mode(glow::FRONT_AND_BACK, glow::FILL);
                     }
+                    gl.clear_color(
+                        bg_color.r() as f32 / u8::MAX as f32,
+                        bg_color.g() as f32 / u8::MAX as f32,
+                        bg_color.b() as f32 / u8::MAX as f32,
+                        bg_color.a() as f32 / u8::MAX as f32,
+                    );
                     gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
                 }
 
-                let view = stage.get_view();
-
                 shader.use_program(gl);
-                stage.draw(gl, &shader, &view, &proj);
+                shader.set_uniform(gl, "proj", ShaderUniformTypes::Mat4(&proj));
+                scene.draw(gl, &shader);
 
                 // The Following code is used to render some normals for debugging
                 if show_normals {
                     norm_shader.use_program(gl);
-                    stage.draw(gl, &norm_shader, &view, &proj);
+                    norm_shader.set_uniform(gl, "proj", ShaderUniformTypes::Mat4(&proj));
+                    scene.draw(gl, &norm_shader);
                 }
 
                 unsafe {
@@ -290,7 +359,8 @@ impl MyApp {
                     gl.polygon_mode(glow::FRONT_AND_BACK, glow::LINE);
                 }
                 black_shader.use_program(gl);
-                stage.draw(gl, &black_shader, &view, &proj);
+                black_shader.set_uniform(gl, "proj", ShaderUniformTypes::Mat4(&proj));
+                scene.draw(gl, &black_shader);
 
                 // Reset back to the normal setting
                 unsafe {

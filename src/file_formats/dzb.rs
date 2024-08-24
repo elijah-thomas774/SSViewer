@@ -3,6 +3,7 @@ use std::io::{Read, Seek, SeekFrom};
 
 use glam::Vec3;
 
+#[allow(dead_code)]
 struct Header {
     vert_count: u32,
     vert_offset: u32,
@@ -20,6 +21,7 @@ struct Header {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Triangle {
     pub vert_idx: [u16; 3],
     pub prop_idx: u16,
@@ -27,6 +29,7 @@ pub struct Triangle {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct OctreeNode {
     pub flags: u16,
     pub parent_node_idx: u16,
@@ -34,11 +37,13 @@ pub struct OctreeNode {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Block {
     pub starting_tri_idx: u16,
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Group {
     pub name_offset: u32,
     pub scale: glam::Vec3,
@@ -55,6 +60,7 @@ pub struct Group {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Property {
     pub info1: u32,
     pub info2: u32,
@@ -63,6 +69,7 @@ pub struct Property {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DZB {
     pub verts: Vec<Vec3>,
     pub tris: Vec<Triangle>,
